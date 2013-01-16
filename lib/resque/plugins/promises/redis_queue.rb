@@ -1,5 +1,6 @@
 require "securerandom"
 require "redis"
+require "timeout"
 
 module Resque
     module Plugins
@@ -9,11 +10,21 @@ module Resque
 
                 attr_reader :id, :redis, :position
 
+                def self.connect(redis)
+                    @redis = redis
+                end
+
+                def self.redis
+                    @redis ||= Redis.new
+                end
+
                 def initialize(id = nil)
                     @id = id || SecureRandom.hex
-                    @position = timestamp
-                    @ttl = 3600
+                    @redis = self.class.redis
+                    @mailbox_id = SecureRandom.hex
                     @mailbox = []
+                    @ttl = 60
+                    redis.multi { register }
                 end
 
                 def connect(redis)
@@ -21,63 +32,43 @@ module Resque
                     self
                 end
 
-                def timestamp
-                    (Time.now.to_f * 1000000).to_i
-                end
-
-                def channel_key
-                    "promise-#{id}-channel"
+                def subscriber_list_key
+                    "promise:#{id}"
                 end
 
                 def mailbox_key
-                    "promise-#{id}-mailbox"
-                end
- 
-                def push(message)
-                    envelope = Marshal.dump(message)
-                    redis.multi do
-                        redis.zadd(mailbox_key, timestamp, envelope)
-                        redis.publish(channel_key, '')
-                        interval = (@ttl * 1000).to_i
-                        redis.pexpire(mailbox_key, interval)
-                        redis.pexpire(channel_key, interval)
-                    end
+                    "promise:#{id}:#{@mailbox_id}"
                 end
 
-                def pop(timeout = nil)
-                    return(Marshal.load(@mailbox.shift)) \
-                        unless @mailbox.empty?
-                    wait(timeout) or return
-                    new_position = timestamp
-                    @mailbox.concat(redis.zrangebyscore(mailbox_key, 
-                        @position, "(#{new_position}"))
-                    @position = new_position
-                    Marshal.load(@mailbox.shift)
+                def push(message)
+                    redis.zremrangebyscore(subscriber_list_key, 0,
+                        (Time.now.to_f - @ttl))
+                    subscribers = redis.zrange(subscriber_list_key, 0, -1)
+                    subscribers.each do |subscriber_key|
+                        redis.lpush(subscriber_key, Marshal.dump(message))
+                        redis.pexpire(subscriber_key, (@ttl * 1000).to_i)
+                    end
+                    subscribers.count
+                end
+
+                def pop(interval = nil)
+                    wait(interval)
+                    result = @mailbox.shift and Marshal.load(result)
                 end
 
                 def wait(interval = nil)
-                    return(true) if (length > 0)
                     begin
-                        timeout(interval || 60) do
-                            redis.subscribe(channel_key) do |on|
-                                on.message { redis.unsubscribe(channel_key) }
-                            end
-                        end
-                        true
+                        register
+                        reader = Proc.new {
+                            @mailbox << redis.brpop(mailbox_key).last }
+                        interval ? timeout(interval, &reader) : reader.call
                     rescue Timeout::Error
-                        return(true) if (length > 0)
-                        retry if interval.nil?
-                        false
+                        return
                     end
                 end
 
-                def length
-                    redis.zcount(mailbox_key, position, "(#{timestamp}")
-                end
-
-                def rewind(new_position)
-                    @position = new_position
-                    self
+                def dup
+                    self.class.new(@id).connect(redis)
                 end
 
                 def ttl(interval)
@@ -85,12 +76,14 @@ module Resque
                     self
                 end
 
-                def dup
-                    self.class.new(@id).rewind(@position).connect(redis)
-                end
-
                 def ==(other)
                     other.instance_of?(self.class) and (other.id == @id)
+                end
+
+                private
+
+                def register
+                    redis.zadd(subscriber_list_key, Time.now.to_f, mailbox_key)
                 end
             end
         end
