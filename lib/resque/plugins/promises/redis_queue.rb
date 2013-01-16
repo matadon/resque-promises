@@ -1,6 +1,7 @@
 require "securerandom"
 require "redis"
 require "timeout"
+require 'resque/plugins/promises/base62'
 
 module Resque
     module Plugins
@@ -19,9 +20,9 @@ module Resque
                 end
 
                 def initialize(id = nil)
-                    @id = id || SecureRandom.hex
+                    @id = id || random_key
                     @redis = self.class.redis
-                    @mailbox_id = SecureRandom.hex
+                    @mailbox_id = random_key
                     @mailbox = []
                     @ttl = 60
                     redis.multi { register }
@@ -81,6 +82,10 @@ module Resque
                 end
 
                 private
+
+                def random_key
+                    Base62.encode(SecureRandom.random_number(2 ** 128))
+                end
 
                 def register
                     redis.zadd(subscriber_list_key, Time.now.to_f, mailbox_key)
