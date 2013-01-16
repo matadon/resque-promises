@@ -9,19 +9,19 @@ module Resque
             class RedisQueue
                 include Timeout
 
-                attr_reader :id, :redis, :position
+                attr_reader :id, :redis
 
                 def self.connect(redis)
                     @redis = redis
                 end
 
                 def self.redis
-                    @redis ||= Redis.new
+                    @redis
                 end
 
                 def initialize(id = nil)
                     @id = id || random_key
-                    @redis = self.class.redis
+                    connect(self.class.redis)
                     @mailbox_id = random_key
                     @mailbox = []
                     @ttl = 60
@@ -29,7 +29,11 @@ module Resque
                 end
 
                 def connect(redis)
-                    @redis = redis
+                    redis ||= Redis.new
+                    keys = %w(scheme host port path timeout password db)
+                    options = keys.map { |k|
+                        v = redis.client.send(k) and [ k.to_sym, v] }
+                    @redis = Redis.new(Hash[options.compact])
                     self
                 end
 
@@ -42,12 +46,15 @@ module Resque
                 end
 
                 def push(message)
-                    redis.zremrangebyscore(subscriber_list_key, 0,
-                        (Time.now.to_f - @ttl))
                     subscribers = redis.zrange(subscriber_list_key, 0, -1)
-                    subscribers.each do |subscriber_key|
-                        redis.lpush(subscriber_key, Marshal.dump(message))
-                        redis.pexpire(subscriber_key, (@ttl * 1000).to_i)
+                    redis.multi do
+                        redis.zremrangebyscore(subscriber_list_key, 0,
+                            (Time.now.to_f - @ttl))
+                        subscribers.each do |subscriber_key|
+                            redis.lpush(subscriber_key, Marshal.dump(message))
+                            redis.pexpire(subscriber_key, (@ttl * 1000).to_i)
+                        end
+                        redis.pexpire(mailbox_key, (@ttl * 1000).to_i)
                     end
                     subscribers.count
                 end

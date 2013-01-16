@@ -12,15 +12,14 @@ describe Resque::Plugins::Promises::RedisQueue do
         queue.should == copy
     end
 
-    it "#pop with timeout" do
-        time = Benchmark.measure { Timeout::timeout(0.1) {
-            queue.pop(0.01) } }
-        time.total.should >= 0.01
-    end
-
     it "#pop without timeout" do
         lambda { Timeout::timeout(0.1) { queue.pop } } \
             .should raise_error(Timeout::Error)
+    end
+
+    it "#pop with timeout" do
+        time = Benchmark.measure { Timeout::timeout(0.1) { queue.pop(0.01) } }
+        time.real.should >= 0.01
     end
 
     it "pushes and pops" do
@@ -66,5 +65,4 @@ describe Resque::Plugins::Promises::RedisQueue do
         sleep(0.002)
         queue.pop(0.01).should be_nil
     end
-
 end
