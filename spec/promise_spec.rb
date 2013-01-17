@@ -192,7 +192,7 @@ describe Promise do
                     as_consumer do
                         consumer = publisher.subscriber
                         consumer.on(:tick) { |e, m| events << e }
-                        consumer.wait(timeout: 0.1)
+                        consumer.wait(timeout: 0.5)
                     end
                 end
                 trigger(:tick)
@@ -202,9 +202,10 @@ describe Promise do
 
             it "multiple publishers" do
                 events = Queue.new
+
                 as_consumer do 
                     subscriber.on { |event, message| events << event }
-                    subscriber.wait(timeout: 0.1)
+                    subscriber.wait(timeout: 0.5)
                 end
 
                 5.times do |index|
@@ -218,7 +219,26 @@ describe Promise do
                 events.length.should == 5
             end
 
-            pending "handles errors"
+            it "explodes without an error handler" do
+                subscriber.on { raise(ArgumentError, 'boom') }
+                trigger(:tick)
+                lambda { subscriber.wait(timeout: 0.01) } \
+                    .should raise_error(ArgumentError)
+            end
+
+            it "handles errors" do
+                events = Queue.new
+                subscriber.on { raise(ArgumentError, 'boom') }
+                subscriber.error { |error| events << error }
+                trigger(:tick)
+                subscriber.wait(timeout: 0.01)
+                events.length.should == 1
+                error = events.pop
+                error.should be_a(ArgumentError)
+                error.to_s.should == 'boom'
+            end
+
+            pending "supports a default timeout"
         end
     end
 end

@@ -56,16 +56,28 @@ module Resque
                     self
                 end
 
+                def error(&block)
+                    raise("subscribers-only") unless subscriber?
+                    @handlers[:error] << block
+                    self
+                end
+
                 def wait(*events)
                     raise("subscribers-only") unless subscriber?
                     options = (events.last.is_a?(Hash) ? events.pop.dup : {})
                     events.map!(&:to_s)
                     while(envelope = @queue.pop(options[:timeout]))
-                        event, message = envelope
-                        handlers = @handlers.delete(event.to_s) || []
-                        handlers.concat(@handlers.delete(:all) || [])
-                        handlers.each { |h| h.call(event.to_sym, message) }
-                        break if events.include?(event.to_s)
+                        begin
+                            event, message = envelope
+                            handlers = @handlers.delete(event.to_s) || []
+                            handlers.concat(@handlers.delete(:all) || [])
+                            handlers.each { |h| h.call(event.to_sym, message) }
+                            break if events.include?(event.to_s)
+                        rescue => error
+                            handlers = @handlers[:error]
+                            raise if handlers.empty?
+                            handlers.each { |h| h.call(error) }
+                        end
                     end
                 end
 
