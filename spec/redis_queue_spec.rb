@@ -1,10 +1,13 @@
+require 'thread'
 require 'spec_helper'
 require 'resque/plugins/promises/redis_queue'
 
-describe Resque::Plugins::Promises::RedisQueue do
-    let(:redis) { Redis.new }
+include Resque::Plugins::Promises
 
-    let(:queue) { Resque::Plugins::Promises::RedisQueue.new.connect(redis) }
+describe RedisQueue do
+    let(:queue) { RedisQueue.new }
+
+    before(:each) { queue.timeout = 0.01 }
 
     it "#dup" do
         copy = queue.dup
@@ -13,12 +16,20 @@ describe Resque::Plugins::Promises::RedisQueue do
     end
 
     it "#pop without timeout" do
-        lambda { Timeout::timeout(0.1) { queue.pop } } \
+        queue.timeout = nil
+        lambda { timeout(0.1) { queue.pop } } \
             .should raise_error(Timeout::Error)
     end
 
     it "#pop with timeout" do
-        time = Benchmark.measure { Timeout::timeout(0.1) { queue.pop(0.01) } }
+        queue.timeout = nil
+        time = Benchmark.measure { timeout(0.1) { queue.pop(0.01) } }
+        time.real.should >= 0.01
+    end
+
+    it "#pop default timeout" do
+        queue.timeout = 0.01
+        time = Benchmark.measure { timeout(0.1) { queue.pop } }
         time.real.should >= 0.01
     end
 
@@ -28,10 +39,16 @@ describe Resque::Plugins::Promises::RedisQueue do
     end
 
     it "pushes to multiple subscribers" do
-        other = queue.dup
+        subscribers = 5.times.map { RedisQueue.new(queue.id) }
         queue.push(:tick)
-        queue.pop.should == :tick
-        other.pop.should == :tick
+        results = subscribers.map { |s| s.pop(0.01) }
+        results.compact.count.should == 5
+    end
+
+    it "reads from multiple publishers" do
+        5.times { RedisQueue.new(queue.id).push('message') }
+        results = 5.times.map { |s| queue.pop(0.01) }
+        results.compact.count.should == 5
     end
 
     it "serializes objects" do
@@ -65,4 +82,38 @@ describe Resque::Plugins::Promises::RedisQueue do
         sleep(0.002)
         queue.pop(0.01).should be_nil
     end
+
+    context "multithreaded" do
+        it "pushes to multiple subscribers" do
+            results = Queue.new
+            subscribers = 5.times.map do |message|
+                Thread.new do
+                    consumer = RedisQueue.new(queue.id)
+                    consumer.timeout = 0.01
+                    sleep
+                    message = consumer.pop and results.push(message)
+                end
+            end
+
+            sleep(0.01)
+            queue.push(:tick)
+            subscribers.each(&:wakeup).each(&:join)
+            results.length.should == 5
+        end
+
+        it "reads from multiple publishers" do
+            publishers = 5.times.map do
+                Thread.new do
+                    producer = RedisQueue.new(queue.id)
+                    producer.timeout = 0.01
+                    producer.push('message')
+                end
+            end
+
+            publishers.each(&:join)
+            results = 5.times.map { |s| queue.pop }
+            results.compact.count.should == 5
+        end
+    end
+
 end

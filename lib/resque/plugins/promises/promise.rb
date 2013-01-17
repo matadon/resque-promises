@@ -18,38 +18,42 @@ module Resque
                     @queue.id
                 end
 
+                def dup
+                    self.class.new(id)
+                end
+
                 def subscriber
                     raise("publishers-only") if subscriber?
-                    result = self.class.new(id)
-                    result.subscribe!
-                    result
+                    dup.subscribe!
                 end
 
                 def subscribe!
                     @subscriber = true
+                    self
                 end
 
                 def subscriber?
                     @subscriber == true
                 end
 
-                # FIXME: Handle exceptions.
+                # FIXME: Handle exceptions (error handler?)
                 def once(*events, &block)
                     raise("subscribers-only") unless subscriber?
                     events.map!(&:to_s)
                     events.push(:all) if events.empty?
                     events.each { |e| @handlers[e] << block }
-                    true
+                    self
                 end
 
                 # FIXME: Handle exceptions.
                 def on(*events, &block)
                     raise("subscribers-only") unless subscriber?
-                    once(*events) do
-                        block.call
-                        on(*events, &block)
+                    once(*events) do |event, message|
+                        block.call(event, message)
+                        reregister_events = events.empty? ? [] : [ event ]
+                        once(*reregister_events, &block)
                     end
-                    true
+                    self
                 end
 
                 def wait(*events)

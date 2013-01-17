@@ -60,8 +60,9 @@ describe Resque::Plugins::Promises::Promise do
             let!(:subscriber) { publisher.subscriber }
 
             def trigger(*args)
+                sleep(0.005)
                 publisher.trigger(*args)
-                sleep(0.01)
+                sleep(0.005)
             end
 
             def as_consumer(&block)
@@ -98,6 +99,13 @@ describe Resque::Plugins::Promises::Promise do
                 check_consumers { |c| c.should be_false }
             end
 
+            it "#wait on multiple events" do
+                as_consumer { subscriber.wait(:tick, :tock) }
+                check_consumers { |c| c.should_not be_nil }
+                trigger(:tock)
+                check_consumers { |c| c.should be_false }
+            end
+
             it "#once" do
                 events = Queue.new
                 subscriber.once { |event, message| events.push(event) }
@@ -108,7 +116,7 @@ describe Resque::Plugins::Promises::Promise do
                 events.length.should == 1
             end
 
-            it "#once gets a message" do
+            it "#once message" do
                 events = Queue.new
                 subscriber.once { |event, message| events.push(message) }
                 as_consumer { subscriber.wait }
@@ -117,7 +125,7 @@ describe Resque::Plugins::Promises::Promise do
                 events.pop.should == 'message'
             end
 
-            it "#once specific event" do
+            it "#once event" do
                 events = Queue.new
                 subscriber.once(:tock) { |event, message| events.push(event) }
                 as_consumer { subscriber.wait }
@@ -125,6 +133,16 @@ describe Resque::Plugins::Promises::Promise do
                 events.length.should == 0
                 trigger(:tock)
                 events.length.should == 1
+            end
+
+            it "#once multiple events" do
+                events = Queue.new
+                subscriber.once(:tick, :tock) { |event, message|
+                    events.push(event) }
+                as_consumer { subscriber.wait }
+                trigger(:tock)
+                events.length.should == 1
+                events.pop.should == :tock
             end
 
             it "#on" do
@@ -137,7 +155,7 @@ describe Resque::Plugins::Promises::Promise do
                 events.length.should == 2
             end
 
-            it "#on a specific event" do
+            it "#on event" do
                 events = Queue.new
                 subscriber.on(:tock) { |event, message| events.push(event) }
                 as_consumer { subscriber.wait }
@@ -148,6 +166,50 @@ describe Resque::Plugins::Promises::Promise do
                 trigger(:tock)
                 events.length.should == 2
             end
+
+            it "#on multiple events" do
+                events = Queue.new
+                subscriber.on(:tick, :tock) { |event, message|
+                    events.push(event) }
+                as_consumer { subscriber.wait }
+                trigger(:tick)
+                events.length.should == 1
+                trigger(:tock)
+                events.length.should == 2
+                trigger(:tock)
+                events.length.should == 3
+            end
+
+            it "multiple subscribers" do
+                events = Queue.new
+                5.times do
+                    as_consumer do
+                        consumer = publisher.subscriber
+                        consumer.on(:tick) { |e, m| events << e }
+                        consumer.wait
+                    end
+                end
+                trigger(:tick)
+                events.length.should == 5
+            end
+
+            it "multiple publishers", :focus do
+                events = Queue.new
+
+                puts "subscriber is #{subscriber.queue.mailbox_key}"
+
+                as_consumer { subscriber.on { |e, m| events << e }.wait }
+                # 5.times { as_consumer { 
+                5.times do
+                    trigger(:tick)
+                end
+                # } }
+
+                sleep(1)
+                events.length.should == 5
+            end
+
+            pending "handles errors"
         end
     end
 end

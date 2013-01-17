@@ -21,11 +21,11 @@ module Resque
 
                 def initialize(id = nil)
                     @id = id || random_key
-                    connect(self.class.redis)
                     @mailbox_id = random_key
                     @mailbox = []
-                    @ttl = 60
-                    redis.multi { register }
+                    @ttl = 3600
+                    connect(self.class.redis)
+                    register
                 end
 
                 def connect(redis)
@@ -45,11 +45,16 @@ module Resque
                     "promise:#{id}:#{@mailbox_id}"
                 end
 
+                def timestamp
+                    time = redis.time and (time[0] + (time[1] / 1000000.0))
+                end
+
                 def push(message)
                     subscribers = redis.zrange(subscriber_list_key, 0, -1)
+                    threshold = timestamp - @ttl
                     redis.multi do
                         redis.zremrangebyscore(subscriber_list_key, 0,
-                            (Time.now.to_f - @ttl))
+                            threshold)
                         subscribers.each do |subscriber_key|
                             redis.lpush(subscriber_key, Marshal.dump(message))
                             redis.pexpire(subscriber_key, (@ttl * 1000).to_i)
@@ -60,12 +65,17 @@ module Resque
                 end
 
                 def pop(interval = nil)
-                    wait(interval)
-                    result = @mailbox.shift and Marshal.load(result)
+                    popper = lambda do
+                        wait(interval)
+                        result = @mailbox.shift and Marshal.load(result)
+                    end
+                    output = popper.call
+                    output
                 end
 
                 def wait(interval = nil)
                     begin
+                        interval ||= @timeout
                         register
                         reader = Proc.new {
                             @mailbox << redis.brpop(mailbox_key).last }
@@ -84,6 +94,10 @@ module Resque
                     self
                 end
 
+                def timeout=(interval)
+                    @timeout = interval
+                end
+
                 def ==(other)
                     other.instance_of?(self.class) and (other.id == @id)
                 end
@@ -95,7 +109,8 @@ module Resque
                 end
 
                 def register
-                    redis.zadd(subscriber_list_key, Time.now.to_f, mailbox_key)
+                    now = timestamp
+                    redis.zadd(subscriber_list_key, now, mailbox_key)
                 end
             end
         end
