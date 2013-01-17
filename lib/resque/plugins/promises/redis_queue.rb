@@ -60,10 +60,14 @@ module Resque
                     redis.zremrangebyscore(consumer_list_key, 0, now_at - @ttl)
                     redis.zremrangebyscore(mailbox_key, 0, now_at - @ttl)
                     consumers = redis.zrange(consumer_list_key, 0, -1)
+
                     redis.multi do
                         envelope = Marshal.dump([ now_at, message ])
                         redis.zadd(mailbox_key, now_at, envelope)
                         redis.pexpire(mailbox_key, (@ttl * 1000).to_i)
+                    end
+
+                    redis.multi do
                         consumers.each do |consumer_key|
                             redis.lpush(consumer_key, now_at)
                             redis.pexpire(consumer_key, (@ttl * 1000).to_i)
@@ -80,10 +84,19 @@ module Resque
                     @mailbox.shift
                 end
 
+                # FIXME: sleep should *not* be needed here, but we're not
+                # seeing messages show up in redis, so we delay for 1ms and
+                # try again -- we want to wait *until* we have new messages.
                 def wait(interval = nil)
                     begin
                         register_as_consumer
-                        waiter = Proc.new { redis.brpop(consumer_key) }
+                        waiter = Proc.new do
+                            while(true)
+                                redis.brpop(consumer_key)
+                                break if (length > 0)
+                                sleep(0.001)
+                            end
+                        end
                         interval ||= @timeout
                         interval ? timeout(interval, &waiter) : waiter.call
                     rescue Timeout::Error

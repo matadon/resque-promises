@@ -49,9 +49,9 @@ module Resque
                 def on(*events, &block)
                     raise("subscribers-only") unless subscriber?
                     once(*events) do |event, message|
-                        block.call(event, message)
                         reregister_events = events.empty? ? [] : [ event ]
-                        once(*reregister_events, &block)
+                        on(*reregister_events, &block)
+                        block.call(event, message)
                     end
                     self
                 end
@@ -61,14 +61,12 @@ module Resque
                     options = (events.last.is_a?(Hash) ? events.pop.dup : {})
                     events.map!(&:to_s)
                     while(envelope = @queue.pop(options[:timeout]))
-                        puts "envelope: #{envelope}"
                         event, message = envelope
                         handlers = @handlers.delete(event.to_s) || []
                         handlers.concat(@handlers.delete(:all) || [])
                         handlers.each { |h| h.call(event.to_sym, message) }
                         break if events.include?(event.to_s)
                     end
-                    puts "envelope: #{envelope}"
                 end
 
                 def trigger(event, message = nil)

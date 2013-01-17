@@ -192,7 +192,7 @@ describe Promise do
                     as_consumer do
                         consumer = publisher.subscriber
                         consumer.on(:tick) { |e, m| events << e }
-                        consumer.wait(timeout: 0.01)
+                        consumer.wait(timeout: 0.1)
                     end
                 end
                 trigger(:tick)
@@ -200,19 +200,11 @@ describe Promise do
                 events.length.should == 5
             end
 
-            it "multiple publishers", :focus do
+            it "multiple publishers" do
                 events = Queue.new
-                puts "subscriber is #{subscriber.queue.mailbox_key}"
-
                 as_consumer do 
-                    subscriber.on do |event, message|
-                        puts "got #{message}"
-                        events << event
-                    end
-                    
-                    subscriber.wait
-
-                    puts "consumer finished"
+                    subscriber.on { |event, message| events << event }
+                    subscriber.wait(timeout: 0.1)
                 end
 
                 5.times do |index|
