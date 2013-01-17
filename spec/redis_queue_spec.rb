@@ -9,6 +9,22 @@ describe RedisQueue do
 
     before(:each) { queue.timeout = 0.01 }
 
+    it "#new with id" do
+        other = RedisQueue.new(queue.id)
+        queue.push('hello')
+        other.length.should == 1
+        other.pop.should == 'hello'
+    end
+
+    it "#new with id and position" do
+        start = queue.position
+        queue.push('hello')
+        queue.pop
+        other = RedisQueue.new(queue.id, start)
+        queue.length.should == 0
+        other.length.should == 1
+    end
+
     it "#dup" do
         copy = queue.dup
         queue.__id__.should_not == copy.__id__
@@ -68,6 +84,20 @@ describe RedisQueue do
             queue.push(index) 
             queue.pop.should == index
         end
+    end
+
+    it "#length" do
+        queue.length.should == 0
+        queue.push('hello')
+        queue.length.should == 1
+    end
+
+    it "#rewind" do
+        start = queue.position
+        queue.push('hello')
+        queue.pop.should == 'hello'
+        queue.rewind(start)
+        queue.pop.should == 'hello'
     end
 
     it "pops new messages only" do

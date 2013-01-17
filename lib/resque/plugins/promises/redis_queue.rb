@@ -9,7 +9,7 @@ module Resque
             class RedisQueue
                 include Timeout
 
-                attr_reader :id, :redis
+                attr_reader :id, :redis, :position
 
                 def self.connect(redis)
                     @redis = redis
@@ -19,13 +19,14 @@ module Resque
                     @redis
                 end
 
-                def initialize(id = nil)
+                def initialize(id = nil, position = nil)
+                    connect(self.class.redis)
                     @id = id || random_key
-                    @mailbox_id = random_key
+                    @consumer_id = random_key
                     @mailbox = []
                     @ttl = 3600
-                    connect(self.class.redis)
-                    register
+                    @position = position || timestamp
+                    register_as_consumer
                 end
 
                 def connect(redis)
@@ -37,56 +38,70 @@ module Resque
                     self
                 end
 
-                def subscriber_list_key
-                    "promise:#{id}"
+                def consumer_list_key
+                    "promise:#{id}:consumers"
+                end
+
+                def consumer_key
+                    "promise:#{id}:#{@consumer_id}"
                 end
 
                 def mailbox_key
-                    "promise:#{id}:#{@mailbox_id}"
+                    "promise:#{id}"
                 end
 
                 def timestamp
-                    time = redis.time and (time[0] + (time[1] / 1000000.0))
+                    time = redis.time
+                    time[0] + (time[1] / 1000000.0)
                 end
 
                 def push(message)
-                    subscribers = redis.zrange(subscriber_list_key, 0, -1)
-                    threshold = timestamp - @ttl
+                    now_at = timestamp
+                    redis.zremrangebyscore(consumer_list_key, 0, now_at - @ttl)
+                    redis.zremrangebyscore(mailbox_key, 0, now_at - @ttl)
+                    consumers = redis.zrange(consumer_list_key, 0, -1)
                     redis.multi do
-                        redis.zremrangebyscore(subscriber_list_key, 0,
-                            threshold)
-                        subscribers.each do |subscriber_key|
-                            redis.lpush(subscriber_key, Marshal.dump(message))
-                            redis.pexpire(subscriber_key, (@ttl * 1000).to_i)
-                        end
+                        envelope = Marshal.dump([ now_at, message ])
+                        redis.zadd(mailbox_key, now_at, envelope)
                         redis.pexpire(mailbox_key, (@ttl * 1000).to_i)
+                        consumers.each do |consumer_key|
+                            redis.lpush(consumer_key, now_at)
+                            redis.pexpire(consumer_key, (@ttl * 1000).to_i)
+                        end
                     end
-                    subscribers.count
+                    consumers.count
                 end
 
                 def pop(interval = nil)
-                    popper = lambda do
-                        wait(interval)
-                        result = @mailbox.shift and Marshal.load(result)
-                    end
-                    output = popper.call
-                    output
+                    process_new_messages
+                    return(@mailbox.shift) unless @mailbox.empty?
+                    wait(interval)
+                    process_new_messages
+                    @mailbox.shift
                 end
 
                 def wait(interval = nil)
                     begin
+                        register_as_consumer
+                        waiter = Proc.new { redis.brpop(consumer_key) }
                         interval ||= @timeout
-                        register
-                        reader = Proc.new {
-                            @mailbox << redis.brpop(mailbox_key).last }
-                        interval ? timeout(interval, &reader) : reader.call
+                        interval ? timeout(interval, &waiter) : waiter.call
                     rescue Timeout::Error
                         return
                     end
                 end
 
+                def length
+                    redis.zcount(mailbox_key, @position, "(#{timestamp}")
+                end
+
                 def dup
                     self.class.new(@id).connect(redis)
+                end
+
+                def rewind(pointer)
+                    @position = pointer
+                    self
                 end
 
                 def ttl(interval)
@@ -104,13 +119,21 @@ module Resque
 
                 private
 
+                def process_new_messages
+                    now_at = timestamp
+                    messages = redis.zrangebyscore(mailbox_key,
+                        @position, "(#{now_at}")
+                    @position = now_at
+                    messages.each { |m| @mailbox << Marshal.load(m).last }
+                end
+
                 def random_key
                     Base62.encode(SecureRandom.random_number(2 ** 128))
                 end
 
-                def register
+                def register_as_consumer
                     now = timestamp
-                    redis.zadd(subscriber_list_key, now, mailbox_key)
+                    redis.zadd(consumer_list_key, now, consumer_key)
                 end
             end
         end

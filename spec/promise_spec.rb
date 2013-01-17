@@ -35,9 +35,11 @@ require 'resque/plugins/promises/promise'
 #     values
 #     clear
 
-describe Resque::Plugins::Promises::Promise do
+include Resque::Plugins::Promises
+
+describe Promise do
     it "#subscriber" do
-        publisher = Resque::Plugins::Promises::Promise.new
+        publisher = Promise.new
         subscriber = publisher.subscriber
         publisher.__id__.should_not == subscriber.__id__
         publisher.should == subscriber
@@ -45,7 +47,7 @@ describe Resque::Plugins::Promises::Promise do
     end
 
     context "#publish" do
-        let!(:publisher) { Resque::Plugins::Promises::Promise.new }
+        let!(:publisher) { Promise.new }
 
         it "only publishes" do
             lambda { publisher.on(:event) }.should raise_error
@@ -71,6 +73,10 @@ describe Resque::Plugins::Promises::Promise do
 
             def check_consumers
                 @consumers.each { |c| yield(c.status) }
+            end
+
+            def wait_for_consumers
+                @consumers.each(&:join)
             end
 
             around(:each) do |example|
@@ -186,26 +192,37 @@ describe Resque::Plugins::Promises::Promise do
                     as_consumer do
                         consumer = publisher.subscriber
                         consumer.on(:tick) { |e, m| events << e }
-                        consumer.wait
+                        consumer.wait(timeout: 0.01)
                     end
                 end
                 trigger(:tick)
+                wait_for_consumers
                 events.length.should == 5
             end
 
             it "multiple publishers", :focus do
                 events = Queue.new
-
                 puts "subscriber is #{subscriber.queue.mailbox_key}"
 
-                as_consumer { subscriber.on { |e, m| events << e }.wait }
-                # 5.times { as_consumer { 
-                5.times do
-                    trigger(:tick)
-                end
-                # } }
+                as_consumer do 
+                    subscriber.on do |event, message|
+                        puts "got #{message}"
+                        events << event
+                    end
+                    
+                    subscriber.wait
 
-                sleep(1)
+                    puts "consumer finished"
+                end
+
+                5.times do |index|
+                    as_consumer do
+                        producer = Promise.new(publisher.id)
+                        producer.trigger(:tick, index)
+                    end
+                end
+
+                wait_for_consumers
                 events.length.should == 5
             end
 

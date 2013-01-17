@@ -9,8 +9,8 @@ module Resque
             class Promise
                 attr_accessor :uuid, :redis, :queue
 
-                def initialize(id = nil)
-                    @queue = RedisQueue.new(id)
+                def initialize(id = nil, position = nil)
+                    @queue = RedisQueue.new(id, position)
                     @handlers = Hash.new { |h, k| h[k] = [] }
                 end
 
@@ -19,7 +19,7 @@ module Resque
                 end
 
                 def dup
-                    self.class.new(id)
+                    self.class.new(@queue.id, @queue.position)
                 end
 
                 def subscriber
@@ -61,12 +61,14 @@ module Resque
                     options = (events.last.is_a?(Hash) ? events.pop.dup : {})
                     events.map!(&:to_s)
                     while(envelope = @queue.pop(options[:timeout]))
+                        puts "envelope: #{envelope}"
                         event, message = envelope
                         handlers = @handlers.delete(event.to_s) || []
                         handlers.concat(@handlers.delete(:all) || [])
                         handlers.each { |h| h.call(event.to_sym, message) }
                         break if events.include?(event.to_s)
                     end
+                    puts "envelope: #{envelope}"
                 end
 
                 def trigger(event, message = nil)
