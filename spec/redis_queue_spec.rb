@@ -113,6 +113,8 @@ describe RedisQueue do
         queue.pop(0.01).should be_nil
     end
 
+    pending "removes old messages"
+
     context "multithreaded" do
         it "pushes to multiple subscribers" do
             results = Queue.new

@@ -13,6 +13,10 @@ describe Promise do
         subscriber.should be_subscriber
     end
 
+    it "#connect" do
+        Promise.new.connect(Redis.new).should be_a(Promise)
+    end
+
     context "#publish" do
         let!(:publisher) { Promise.new }
 

@@ -11,7 +11,13 @@ module Resque
 
                 def initialize(id = nil, position = nil)
                     @queue = RedisQueue.new(id, position)
+                    @redis = @queue.redis
                     @handlers = Hash.new { |h, k| h[k] = [] }
+                end
+
+                def connect(redis)
+                    @queue.connect(redis)
+                    self
                 end
 
                 def id
@@ -36,7 +42,6 @@ module Resque
                     @subscriber == true
                 end
 
-                # FIXME: Handle exceptions (error handler?)
                 def once(*events, &block)
                     raise("subscribers-only") unless subscriber?
                     events.map!(&:to_s)
@@ -45,7 +50,6 @@ module Resque
                     self
                 end
 
-                # FIXME: Handle exceptions.
                 def on(*events, &block)
                     raise("subscribers-only") unless subscriber?
                     once(*events) do |event, message|
