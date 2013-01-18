@@ -2,39 +2,6 @@ require 'spec_helper'
 require 'thread'
 require 'resque/plugins/promises/promise'
 
-# http://www.quora.com/Redis/What-are-5-mistakes-to-avoid-when-using-Redis
-
-# class PromisedJob
-#     include Resque::Plugins::Promises::Promises
-
-#     def enqueue_with_promise(*args)
-#         combined_args = [ promise_id, args ]
-#         Redis.enqueue(self, *combined_args)
-#     end
-
-#     def after_dequeue_with_promise(*combined_args)
-#         promise_id, args = combined_args
-#     end
-
-#     def around_perform_with_promise(*args)
-#         promise_id, args = combined_args
-#         yield(args)
-#     end
-
-#     def on_failure_with_promise(error, *args)
-#         # FIXME: this could also explode
-#         promise_id, args = combined_args
-#     end
-# end
-
-# Hashlike
-#     set(key, value)
-#     delete(key)
-#     get(key)
-#     keys
-#     values
-#     clear
-
 include Resque::Plugins::Promises
 
 describe Promise do
@@ -188,35 +155,26 @@ describe Promise do
 
             it "multiple subscribers" do
                 events = Queue.new
-                5.times do
+                20.times do
+                    consumer = publisher.subscriber
                     as_consumer do
-                        consumer = publisher.subscriber
                         consumer.on(:tick) { |e, m| events << e }
-                        consumer.wait(timeout: 0.5)
+                        consumer.wait(timeout: 0.2)
                     end
                 end
                 trigger(:tick)
                 wait_for_consumers
-                events.length.should == 5
+                events.length.should == 20
             end
 
             it "multiple publishers" do
                 events = Queue.new
-
-                as_consumer do 
-                    subscriber.on { |event, message| events << event }
-                    subscriber.wait(timeout: 0.5)
-                end
-
-                5.times do |index|
-                    as_consumer do
-                        producer = Promise.new(publisher.id)
-                        producer.trigger(:tick, index)
-                    end
-                end
-
+                20.times { |index| as_consumer {
+                    Promise.new(publisher.id).trigger(:tick, index) } }
+                subscriber.on { |event, message| events << event }
+                subscriber.wait(timeout: 0.1)
                 wait_for_consumers
-                events.length.should == 5
+                events.length.should == 20
             end
 
             it "explodes without an error handler" do
@@ -238,7 +196,10 @@ describe Promise do
                 error.to_s.should == 'boom'
             end
 
-            pending "supports a default timeout"
+            it "supports a default timeout" do
+                subscriber.timeout = 0.05
+                Timeout::timeout(0.1) { subscriber.wait }
+            end
         end
     end
 end

@@ -7,7 +7,7 @@ module Resque
     module Plugins
         module Promises
             class Promise
-                attr_accessor :uuid, :redis, :queue
+                attr_accessor :uuid, :redis, :queue, :timeout
 
                 def initialize(id = nil, position = nil)
                     @queue = RedisQueue.new(id, position)
@@ -66,7 +66,9 @@ module Resque
                     raise("subscribers-only") unless subscriber?
                     options = (events.last.is_a?(Hash) ? events.pop.dup : {})
                     events.map!(&:to_s)
-                    while(envelope = @queue.pop(options[:timeout]))
+                    interval = @timeout
+                    interval = options[:timeout] if options.has_key?(:timeout)
+                    while(envelope = @queue.pop(interval))
                         begin
                             event, message = envelope
                             handlers = @handlers.delete(event.to_s) || []

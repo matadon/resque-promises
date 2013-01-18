@@ -9,7 +9,7 @@ module Resque
             class RedisQueue
                 include Timeout
 
-                attr_reader :id, :redis, :position
+                attr_reader :id, :redis
 
                 def self.connect(redis)
                     @redis = redis
@@ -25,8 +25,12 @@ module Resque
                     @consumer_id = random_key
                     @mailbox = []
                     @ttl = 3600
-                    @position = position || timestamp
+                    @head = position || redis.llen(mailbox_key)
                     register_as_consumer
+                end
+
+                def position
+                    @head
                 end
 
                 def connect(redis)
@@ -50,46 +54,53 @@ module Resque
                     "promise:#{id}"
                 end
 
-                def timestamp
-                    time = redis.time
-                    time[0] + (time[1] / 1000000.0)
-                end
+                # we need a sequence of guaranteed deliveries
+                #
+                # we don't want duplicate copies of all messages (it's very
+                # wasteful if you've got a large number of subscribers)
+                #
+                # each message must be received once and only once
+                #
+                # list of subscribers
+                #
+                # central mailbox
+                #
+                # publish a unique message id
+                #
+                # we want to know how old a message was, so we can clean
+                # our message queue later -- do this in a separate queue
 
                 def push(message)
-                    now_at = timestamp
-                    redis.zremrangebyscore(consumer_list_key, 0, now_at - @ttl)
-                    redis.zremrangebyscore(mailbox_key, 0, now_at - @ttl)
+                    # FIXME: move this to a cleanup function
+                    # redis.zremrangebyscore(consumer_list_key, 0,
+                    #     timestamp - @ttl)
+                    # redis.zremrangebyscore(mailbox_key, 0,
+                    # Time.now.to_f - @ttl)
+
+                    index = redis.rpush(mailbox_key, Marshal.dump(message))
+                    redis.pexpire(mailbox_key, (@ttl * 1000).to_i)
+
                     consumers = redis.zrange(consumer_list_key, 0, -1)
-
-                    redis.multi do
-                        envelope = Marshal.dump([ now_at, message ])
-                        redis.zadd(mailbox_key, now_at, envelope)
-                        redis.pexpire(mailbox_key, (@ttl * 1000).to_i)
-                    end
-
-                    redis.multi do
-                        consumers.each do |consumer_key|
-                            redis.lpush(consumer_key, now_at)
-                            redis.pexpire(consumer_key, (@ttl * 1000).to_i)
-                        end
+                    consumers.each do |consumer_key|
+                        redis.lpush(consumer_key, index)
+                        redis.pexpire(consumer_key, (@ttl * 1000).to_i)
                     end
                     consumers.count
                 end
 
                 def pop(interval = nil)
-                    process_new_messages
-                    return(@mailbox.shift) unless @mailbox.empty?
+                    # process_new_messages
+                    # return(@mailbox.shift) unless @mailbox.empty?
                     wait(interval)
                     process_new_messages
                     @mailbox.shift
                 end
 
-                # FIXME: sleep should *not* be needed here, but we're not
-                # seeing messages show up in redis, so we delay for 1ms and
-                # try again -- we want to wait *until* we have new messages.
                 def wait(interval = nil)
+                    return unless @mailbox.empty?
+                    register_as_consumer
+
                     begin
-                        register_as_consumer
                         waiter = Proc.new do
                             while(true)
                                 redis.brpop(consumer_key)
@@ -104,7 +115,7 @@ module Resque
                 end
 
                 def length
-                    redis.zcount(mailbox_key, @position, "(#{timestamp}")
+                    redis.llen(mailbox_key) - @head
                 end
 
                 def dup
@@ -112,7 +123,7 @@ module Resque
                 end
 
                 def rewind(pointer)
-                    @position = pointer
+                    @head = pointer
                     self
                 end
 
@@ -132,12 +143,11 @@ module Resque
                 private
 
                 def process_new_messages
-                    now_at = timestamp
-                    messages = redis.zrangebyscore(mailbox_key,
-                        @position, "(#{now_at}")
-                    return if messages.empty?
-                    @position = now_at
-                    messages.each { |m| @mailbox << Marshal.load(m).last }
+                    tail = redis.llen(mailbox_key) - 1
+                    return if (tail < @head)
+                    messages = redis.lrange(mailbox_key, @head, tail)
+                    messages.each { |m| @mailbox << Marshal.load(m) }
+                    @head = tail + 1
                 end
 
                 def random_key
@@ -145,8 +155,7 @@ module Resque
                 end
 
                 def register_as_consumer
-                    now = timestamp
-                    redis.zadd(consumer_list_key, now, consumer_key)
+                    redis.zadd(consumer_list_key, Time.now.to_f, consumer_key)
                 end
             end
         end

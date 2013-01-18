@@ -119,7 +119,7 @@ describe RedisQueue do
 
             subscribers = 20.times.map do |message|
                 consumer = RedisQueue.new(queue.id)
-                consumer.timeout = 1
+                consumer.timeout = 0.1
                 Thread.new { m = consumer.pop and results.push(m) }
             end
 
@@ -136,8 +136,7 @@ describe RedisQueue do
             end
 
             publishers.each(&:join)
-            results = 20.times.map { |s| queue.pop }
-            results.compact.count.should == 20
+            queue.length.should == 20
         end
     end
 
