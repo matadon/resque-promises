@@ -94,7 +94,6 @@ module Resque
                             while(true)
                                 redis.brpop(consumer_key)
                                 break if (length > 0)
-                                sleep(0.001)
                             end
                         end
                         interval ||= @timeout
@@ -136,6 +135,7 @@ module Resque
                     now_at = timestamp
                     messages = redis.zrangebyscore(mailbox_key,
                         @position, "(#{now_at}")
+                    return if messages.empty?
                     @position = now_at
                     messages.each { |m| @mailbox << Marshal.load(m).last }
                 end

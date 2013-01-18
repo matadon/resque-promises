@@ -116,33 +116,28 @@ describe RedisQueue do
     context "multithreaded" do
         it "pushes to multiple subscribers" do
             results = Queue.new
-            subscribers = 5.times.map do |message|
-                Thread.new do
-                    consumer = RedisQueue.new(queue.id)
-                    consumer.timeout = 0.01
-                    sleep
-                    message = consumer.pop and results.push(message)
-                end
+
+            subscribers = 20.times.map do |message|
+                consumer = RedisQueue.new(queue.id)
+                consumer.timeout = 1
+                Thread.new { m = consumer.pop and results.push(m) }
             end
 
-            sleep(0.01)
             queue.push(:tick)
-            subscribers.each(&:wakeup).each(&:join)
-            results.length.should == 5
+            subscribers.each(&:join)
+            results.length.should == 20
         end
 
         it "reads from multiple publishers" do
-            publishers = 5.times.map do
+            publishers = 20.times.map do
                 Thread.new do
-                    producer = RedisQueue.new(queue.id)
-                    producer.timeout = 0.01
-                    producer.push('message')
+                    RedisQueue.new(queue.id).push('message')
                 end
             end
 
             publishers.each(&:join)
-            results = 5.times.map { |s| queue.pop }
-            results.compact.count.should == 5
+            results = 20.times.map { |s| queue.pop }
+            results.compact.count.should == 20
         end
     end
 
