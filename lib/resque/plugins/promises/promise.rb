@@ -2,22 +2,35 @@ require "thread"
 require "redis"
 require "timeout"
 require "resque/plugins/promises/redis_queue"
+require "resque/plugins/promises/redis_hash"
+require "resque/plugins/promises/delegation"
 
 module Resque
     module Plugins
         module Promises
             class Promise
+                include Delegation
+
                 attr_accessor :uuid, :redis, :queue, :timeout
+
+                attr_reader :locals
+
+                delegate '[]', '[]=', to: :locals
 
                 def initialize(id = nil, position = nil)
                     @queue = RedisQueue.new(id, position)
                     @redis = @queue.redis
                     @handlers = Hash.new { |h, k| h[k] = [] }
+                    @locals = RedisHash.new(locals_key).connect(redis)
                 end
 
                 def connect(redis)
                     @queue.connect(redis)
                     self
+                end
+
+                def locals_key
+                    "promise:#{id}:locals"
                 end
 
                 def id
@@ -97,35 +110,6 @@ module Resque
                 def ==(other)
                     other.instance_of?(self.class) and (other.uuid == @uuid)
                 end
-
-                # def []=(key, value)
-                # end
-
-                # def [](key)
-                # end
-
-                # def delete(key)
-                # end
-
-                # def keys
-                # end
-
-                # def values
-                # end
-
-                # def length
-                # end
-
-                # def to_a
-                # end
-
-                # def each(&block)
-                #     if(block.arity < 2)
-                #         yield
-                #     else
-                #         yield
-                #     end
-                # end
             end
         end
     end
