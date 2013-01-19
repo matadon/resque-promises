@@ -1,8 +1,5 @@
-require 'thread'
-require 'spec_helper'
 require 'resque/plugins/promises/redis_queue'
-
-include Resque::Plugins::Promises
+require 'spec_helper'
 
 describe RedisQueue do
     let(:queue) { RedisQueue.new }

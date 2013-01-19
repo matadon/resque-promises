@@ -97,6 +97,35 @@ module Resque
                 def ==(other)
                     other.instance_of?(self.class) and (other.uuid == @uuid)
                 end
+
+                # def []=(key, value)
+                # end
+
+                # def [](key)
+                # end
+
+                # def delete(key)
+                # end
+
+                # def keys
+                # end
+
+                # def values
+                # end
+
+                # def length
+                # end
+
+                # def to_a
+                # end
+
+                # def each(&block)
+                #     if(block.arity < 2)
+                #         yield
+                #     else
+                #         yield
+                #     end
+                # end
             end
         end
     end

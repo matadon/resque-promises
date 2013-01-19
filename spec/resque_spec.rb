@@ -1,7 +1,6 @@
-require 'resque/plugins/promises'
 require 'resque'
-
-include Resque::Plugins::Promises
+require 'resque/plugins/promises'
+require 'spec_helper'
 
 describe Resque::Plugins::Promises do
     before :all do
