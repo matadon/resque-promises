@@ -42,7 +42,6 @@ module Resque
                 end
 
                 def subscriber
-                    raise("publishers-only") if subscriber?
                     dup.subscribe!
                 end
 
@@ -56,7 +55,6 @@ module Resque
                 end
 
                 def once(*events, &block)
-                    raise("subscribers-only") unless subscriber?
                     events.map!(&:to_s)
                     events.push(:all) if events.empty?
                     events.each { |e| @handlers[e] << block }
@@ -64,23 +62,24 @@ module Resque
                 end
 
                 def on(*events, &block)
-                    raise("subscribers-only") unless subscriber?
                     once(*events) do |event, message|
                         reregister_events = events.empty? ? [] : [ event ]
                         on(*reregister_events, &block)
-                        block.call(event, message)
+                        if(block.arity < 2)
+                            block.call(message)
+                        else
+                            block.call(event, message)
+                        end
                     end
                     self
                 end
 
                 def error(&block)
-                    raise("subscribers-only") unless subscriber?
                     @handlers[:error] << block
                     self
                 end
 
                 def wait(*events)
-                    raise("subscribers-only") unless subscriber?
                     options = (events.last.is_a?(Hash) ? events.pop.dup : {})
                     events.map!(&:to_s)
                     interval = @timeout
@@ -90,7 +89,13 @@ module Resque
                             event, message = envelope
                             handlers = @handlers.delete(event.to_s) || []
                             handlers.concat(@handlers.delete(:all) || [])
-                            handlers.each { |h| h.call(event.to_sym, message) }
+                            handlers.each do |handler|
+                                if (handler.arity < 2)
+                                    handler.call(message)
+                                else
+                                    handler.call(event.to_sym, message)
+                                end
+                            end
                             break if events.include?(event.to_s)
                         rescue => error
                             handlers = @handlers[:error]
@@ -101,10 +106,17 @@ module Resque
                 end
 
                 def trigger(event, message = nil)
-                    raise("publishers-only") if subscriber?
                     envelope = [ event.to_sym, message ]
                     @queue.push(envelope)
                     true
+                end
+
+                def status=(state)
+                    locals[:_promised_job_status] = state
+                end
+
+                def status
+                    locals[:_promised_job_status]
                 end
 
                 def ==(other)

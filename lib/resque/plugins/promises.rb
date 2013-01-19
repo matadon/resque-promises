@@ -18,6 +18,7 @@ module Resque
 
                 def enqueue_to(queue, *args)
                     promise = Promise.new.connect(Resque.redis)
+                    promise.status = 'promised'
                     Resque.enqueue_to(queue, self,
                         *embed_promise_in_args(promise, args))
                     promise.subscriber
@@ -44,6 +45,7 @@ module Resque
 
                 def after_enqueue_with_promise(*args)
                     promise = extract_promise_from_args(args)
+                    promise.status = 'queued'
                     original_args = extract_original_args(args)
                     promise.trigger(:enqueue, original_args)
                 end
@@ -61,13 +63,16 @@ module Resque
                     original_args = extract_original_args(args)
                     promise.trigger(:perform, original_args)
                     @promise = promise
+                    promise.status = 'started'
                     perform(*original_args)
+                    promise.status = 'finished'
                     promise.trigger(:success, original_args)
                     promise.trigger(:finished, original_args)
                 end
 
                 def on_failure_with_promise(error, *args)
                     promise = extract_promise_from_args(args)
+                    promise.status = 'finished'
                     original_args = extract_original_args(args)
                     promise.trigger(:error, [ error, original_args ])
                     promise.trigger(:finished, original_args)

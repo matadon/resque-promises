@@ -24,11 +24,6 @@ describe Promise do
     context "#publish" do
         let!(:publisher) { Promise.new }
 
-        it "only publishes" do
-            lambda { publisher.on(:event) }.should raise_error
-            lambda { publisher.wait }.should raise_error
-        end
-
         it "triggers without any subscribers" do
             Timeout::timeout(0.001) { publisher.trigger(:tick) }
         end
