@@ -50,12 +50,6 @@ module Resque
                     promise.trigger(:enqueue, original_args)
                 end
 
-                def after_dequeue_with_promise(*args)
-                    promise = extract_promise_from_args(args)
-                    original_args = extract_original_args(args)
-                    promise.trigger(:dequeue, original_args)
-                end
-
                 def around_perform_with_promise(*args)
                     raise("need-to-enqueue-with-special-accessor") \
                         unless args_has_promise?(args)

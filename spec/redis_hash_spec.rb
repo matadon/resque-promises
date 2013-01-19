@@ -4,6 +4,8 @@ require 'spec_helper'
 describe RedisHash do
     let(:hash) { RedisHash.new('redis-hash-test') }
 
+    before(:each) { Redis.new.flushall }
+
     it "#connect" do
         hash.connect(Redis.new).should be_a(RedisHash)
     end
@@ -49,12 +51,6 @@ describe RedisHash do
         array.map(&:last).sort.should == %w(hello world)
     end
 
-    it "#length" do
-        hash['foo'] = "hello"
-        hash['bar'] = "world"
-        hash.keys.length.should == 2
-    end
-
     it "#keys" do
         hash['foo'] = "hello"
         hash['bar'] = "world"
@@ -67,6 +63,13 @@ describe RedisHash do
         hash['bar'] = "world"
         hash.values.should include("hello")
         hash.values.should include("world")
+    end
+
+    it "#length" do
+        hash['foo'] = "hello"
+        hash.length.should == 1
+        hash['bar'] = "world"
+        hash.length.should == 2
     end
 
     it "#each" do

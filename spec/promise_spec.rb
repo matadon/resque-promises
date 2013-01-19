@@ -94,14 +94,14 @@ describe Promise do
 
             it "#once message" do
                 events = Queue.new
-                subscriber.once { |event, message| events.push(message) }
+                subscriber.once { |message| events.push(message) }
                 as_consumer { subscriber.wait }
                 trigger(:tick, 'message')
                 events.length.should == 1
                 events.pop.should == 'message'
             end
 
-            it "#once event" do
+            it "#once event and message" do
                 events = Queue.new
                 subscriber.once(:tock) { |event, message| events.push(event) }
                 as_consumer { subscriber.wait }
@@ -141,6 +141,22 @@ describe Promise do
                 events.length.should == 1
                 trigger(:tock)
                 events.length.should == 2
+                events.pop.should == :tock
+                events.pop.should == :tock
+            end
+
+            it "#on event with message" do
+                events = Queue.new
+                subscriber.on(:tock) { |message| events.push(message) }
+                as_consumer { subscriber.wait }
+                trigger(:tick, 'zero')
+                events.length.should == 0
+                trigger(:tock, 'one')
+                events.length.should == 1
+                trigger(:tock, 'two')
+                events.length.should == 2
+                events.pop.should == 'one'
+                events.pop.should == 'two'
             end
 
             it "#on multiple events" do

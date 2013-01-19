@@ -11,16 +11,8 @@ module Resque
 
                 attr_reader :id, :redis
 
-                def self.connect(redis)
-                    @redis = redis
-                end
-
-                def self.redis
-                    @redis
-                end
-
                 def initialize(id = nil, position = nil)
-                    connect(self.class.redis)
+                    connect(Redis.new)
                     @id = id || random_key
                     @consumer_id = random_key
                     @mailbox = []

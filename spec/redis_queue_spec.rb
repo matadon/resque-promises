@@ -13,6 +13,10 @@ describe RedisQueue do
         other.pop.should == 'hello'
     end
 
+    it "#connect" do
+        queue.connect(Redis.new).should be_a(RedisQueue)
+    end
+
     it "#new with id and position" do
         start = queue.position
         queue.push('hello')

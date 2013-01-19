@@ -27,7 +27,5 @@ Gem::Specification.new do |spec|
     spec.add_dependency('resque', '>= 1.7.0')
     spec.add_development_dependency('rspec', '>= 2.7.0')
     spec.add_development_dependency('rspec-core', '>= 2.7.0')
-    # spec.add_development_dependency('rspec-longrun')
-    # spec.add_development_dependency('json_pure', '>= 1.6.0')
-    # spec.add_development_dependency('nokogiri')
+    spec.add_development_dependency('simplecov')
 end
