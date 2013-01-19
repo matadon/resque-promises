@@ -105,12 +105,12 @@ describe RedisQueue do
     end
 
     it "cleans up" do
+        queue.redis.flushall
         queue.ttl(0.001).push(:tick)
+        queue.redis.keys('*').should_not be_empty
         sleep(0.002)
-        queue.pop(0.01).should be_nil
+        queue.redis.keys('*').should be_empty
     end
-
-    pending "removes old messages"
 
     context "multithreaded" do
         it "pushes to multiple subscribers" do

@@ -77,4 +77,13 @@ describe RedisHash do
         hash.each { |k, v| k.should be_a(String) }
         hash.each { |k, v| hash[k].should == v }
     end
+
+    it "#ttl" do
+        hash.redis.flushall
+        hash.ttl(0.001)
+        hash['foo'] = 'hello'
+        hash.redis.keys('*').should_not be_empty
+        sleep(0.002)
+        hash.redis.keys('*').should be_empty
+    end
 end

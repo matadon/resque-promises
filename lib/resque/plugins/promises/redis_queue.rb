@@ -24,7 +24,7 @@ module Resque
                     @id = id || random_key
                     @consumer_id = random_key
                     @mailbox = []
-                    @ttl = 3600
+                    @ttl = 86400
                     @head = position || redis.llen(mailbox_key)
                     register_as_consumer
                 end
@@ -71,19 +71,13 @@ module Resque
                 # our message queue later -- do this in a separate queue
 
                 def push(message)
-                    # FIXME: move this to a cleanup function
-                    # redis.zremrangebyscore(consumer_list_key, 0,
-                    #     timestamp - @ttl)
-                    # redis.zremrangebyscore(mailbox_key, 0,
-                    # Time.now.to_f - @ttl)
-
-                    index = redis.rpush(mailbox_key, Marshal.dump(message))
-                    redis.pexpire(mailbox_key, (@ttl * 1000).to_i)
-
+                    index = redis.rpush(mailbox_key, encode(message))
+                    expire(mailbox_key)
+                    expire(consumer_list_key)
                     consumers = redis.zrange(consumer_list_key, 0, -1)
                     consumers.each do |consumer_key|
                         redis.lpush(consumer_key, index)
-                        redis.pexpire(consumer_key, (@ttl * 1000).to_i)
+                        expire(consumer_key)
                     end
                     consumers.count
                 end
@@ -142,11 +136,23 @@ module Resque
 
                 private
 
+                def expire(key)
+                    @ttl and redis.pexpire(key, (@ttl * 1000).to_i)
+                end
+
+                def encode(value)
+                    Marshal.dump(value)
+                end
+
+                def decode(value)
+                    Marshal.load(value)
+                end
+
                 def process_new_messages
                     tail = redis.llen(mailbox_key) - 1
                     return if (tail < @head)
                     messages = redis.lrange(mailbox_key, @head, tail)
-                    messages.each { |m| @mailbox << Marshal.load(m) }
+                    messages.each { |m| @mailbox << decode(m) }
                     @head = tail + 1
                 end
 
